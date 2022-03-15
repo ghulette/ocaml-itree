@@ -10,6 +10,17 @@ module ITree (E : Effect) = struct
     | Tau : 'r t -> 'r t
     | Vis : ('a E.e * ('a -> 'r t)) -> 'r t
 
+  let trigger e = Vis (e, fun x -> Ret x)
+  let return x = Ret x
+
+  let rec bind m k =
+    match m with
+    | Ret x -> k x
+    | Tau tr -> Tau (bind tr k)
+    | Vis (act, f) -> Vis (act, fun x -> bind (f x) k)
+
+  let ( >>= ) = bind
+
   let rec run_with_fuel n tr =
     if n = 0 then failwith "no more fuel"
     else
@@ -37,13 +48,19 @@ end
 
 module M = ITree (IO)
 
+let rec spin = M.Tau spin
 let rec print_ones : unit M.t = M.Vis (IO.Output 1, fun () -> print_ones)
 
-let rec echo : unit M.t =
-  M.Vis (IO.Input, fun x -> M.Vis (IO.Output x, fun () -> echo))
+let rec echo () =
+  let open M in
+  trigger IO.Input >>= fun x ->
+  trigger (IO.Output x) >>= fun () ->
+  echo ()
 
-let rec spin : unit M.t = M.Tau spin
+let rec kill9 () =
+  let open M in
+  trigger IO.Input >>= fun x ->
+  if x = 9 then return true else kill9 ()
 
-let () =
-  M.run_with_fuel 5 print_ones;
-  M.run echo
+(* let () = M.run kill9 |> Format.printf "%b\n" *)
+let () = M.run (echo ())
